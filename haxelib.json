@@ -1,0 +1,14 @@
+{
+  "name": "Yield",
+  "license": "MIT",
+  "classPath": "src",
+  "tags": ["uhu", "macro", "yield"],
+  "description": "Tiny iterator helper",
+  "contributors": ["skial"],
+  "releasenote": "Initial Release",
+  "version": "0.0.1-alpha",
+  "url": "https://github.com/skial/yield",
+  "dependencies": {
+    "uhu": ""
+  }
+}
