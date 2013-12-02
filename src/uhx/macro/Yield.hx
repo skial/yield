@@ -91,8 +91,10 @@ class Yield {
 					
 					for (c in cases) loop( c.expr, n, c.expr );
 					
-					block = generator.fields.get( 'move' ).getMethod().expr;
-					block.expr = EBlock( [ { expr: ESwitch( macro $i{ 'state' + (state-1) }, cases, null ), pos: e.pos } ] );
+					generator.fields.get( 'move' ).getMethod().expr.expr = EBlock( [ { 
+						expr: ESwitch( macro $i { 'state' + (state-1) }, cases, null ), 
+						pos: e.pos 
+					} ] );
 					
 				} else {
 					copy.iter( loop.bind(_, n) );
@@ -143,16 +145,18 @@ class Yield {
 					pos: e.pos,
 				} );
 				
-			/*case macro for ($ident in $expr) $block:
-				var exprs = block.expr.getParameters()[0];
-				var copy = exprs.copy();
-				var cases = transformEBlock( copy );
+			case macro for ($ident in $expr) $block:
+				generator.fields.push( {
+					name: ident.toString(),
+					access: [APublic],
+					kind: FVar( null ),
+					pos: e.pos,
+				} );
 				
-				if (cases.length > 0) {
-					block.expr = EBlock( [ { expr: ESwitch( macro state, cases, null ), pos: block.pos } ] );
-				} else {
-					exprs.iter( loop.bind(_, n) );
-				}*/
+				ident.expr = EConst( CIdent( '_' + ident.toString() ) );
+				// TODO need to move for loop ident to become class member
+				// TODO need to take `start...end` and set ident to `start` and change
+				// from `for loop` to `while loop`. eg ident = start; while(ident < end) block
 				
 			case _:
 				e.iter( loop.bind(_, n) );
