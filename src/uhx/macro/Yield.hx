@@ -34,14 +34,15 @@ class Yield {
 	
 	public static var cls:ClassType = null;
 	public static var generator:TypeDefinition = null;
-	public static var hasYield:Bool = false;
+	//public static var hasYield:Bool = false;
 	
 	public static function handler(cls:ClassType, fields:Array<Field>):Array<Field> {
 		Yield.cls = cls;
 		
 		if (!Context.defined( 'display' )) for (field in fields) switch (field.kind) {
 			case FFun(method) if (method.expr != null):
-				hasYield = false;
+				//hasYield = false;
+				state = 0;
 				setupYieldClass( generator = createYieldClass( field.name ) );
 				entry( method.expr, field.name );
 				finalizeYieldClass( generator, method );
@@ -97,7 +98,8 @@ class Yield {
 					} ] );
 					
 				} else {
-					copy.iter( loop.bind(_, n) );
+					var hasYield = false;
+					copy.iter( function (ee) if (loop(ee, n)) hasYield = true );
 					if (hasYield) generator.fields.get( 'move' ).getMethod().expr.expr = EBlock( copy );
 				}
 				
@@ -106,7 +108,8 @@ class Yield {
 		}
 	}
 	
-	public static function loop(e:Expr, n:String, ?r:Expr = null) {
+	public static function loop(e:Expr, n:String, ?r:Expr = null):Bool {
+		var hasYield = false;
 		
 		switch (e) {
 			case { expr: EBlock(es), pos: pos } :
@@ -114,6 +117,8 @@ class Yield {
 				var cases = transformEBlock( copy );
 				
 				if (cases.length > 0) {
+					
+					hasYield = true;
 					
 					var method = {
 						name: 'block$indent',
@@ -128,12 +133,12 @@ class Yield {
 					};
 					
 					generator.fields.push( method );
-					e.expr = EBlock( [ macro $i { 'block$indent' }() ] );
+					e.expr = (macro $i { 'block$indent' } ()).expr;
 					
 					indent++;
 					
 				} else {
-					copy.iter( loop.bind(_, n) );
+					copy.iter( function(ee) if (loop(ee, n)) hasYield = true );
 					if (hasYield) e.expr = EBlock( copy );
 				}
 				
@@ -153,26 +158,70 @@ class Yield {
 					pos: e.pos,
 				} );
 				
-				ident.expr = EConst( CIdent( '_' + ident.toString() ) );
-				// TODO need to move for loop ident to become class member
-				// TODO need to take `start...end` and set ident to `start` and change
-				// from `for loop` to `while loop`. eg ident = start; while(ident < end) block
+				if (loop( block, n )) {
+					
+					switch (expr) {
+						case macro $start...$end:
+							generator.fields.get( ident.toString() ).toFVar( Context.typeof( start ).toCType() );
+							e.expr = ( macro {
+								if ($ident == null ) $ident = $start;
+								while ($ident < $end) {
+									$block;
+									$ident++;
+									if ($ident == $end ) $i { 'state' + (state-1) } = -1;
+									break;
+								}
+							} ).expr;
+							
+						case _:
+							
+					}
+					
+					hasYield = true;
+					var field = generator.fields[generator.fields.length -1];
+					
+					switch (field.getMethod().expr) {
+						case { expr: EBlock(es), pos: pos } :
+							for (e in es) switch (e) {
+								case { expr: ESwitch(ident, cases, _), pos: pos } :
+									switch (cases[cases.length - 1].expr) {
+										case { expr: EBlock(es), pos: pos } :
+											es.pop();
+											es.push( macro $ident = 0 );
+											
+										case _:
+											
+									}
+									
+								case _:
+									
+							}
+							
+						case _:
+							
+					}
+					
+				}
 				
 			case _:
-				e.iter( loop.bind(_, n) );
+				e.iter( function(ee) if (loop(ee, n)) hasYield = true );
 				
 		}
 		
+		return hasYield;
 	}
 	
 	public static function finalizeYieldClass(t:TypeDefinition, f:Function) {
 		var result = false;
-		trace( t.printTypeDefinition() );
+		//trace( t.printTypeDefinition() );
 		if (t.fields.exists( 'move' )) switch (t.fields.get( 'move' ).kind) {
 			case FFun(m): 
 				switch (m.expr.expr) {
 					case EBlock(exprs) if (exprs.length > 0):
-						var es = [for (i in 0...state) macro $i { 'state$i' } = 0];
+						var es = [for (i in 0...state) { 
+							t.fields.push( { name: 'state$i', access: [APublic], kind: FVar( macro :Int ), pos: exprs[0].pos } );
+							macro $i { 'state$i' } = 0;
+						} ];
 						t.fields.get( 'new' ).body( { expr: EBlock( es ), pos: es[0].pos } );
 						var copy = exprs.copy();
 						t.fields.get( 'next' ).ret( f.ret );
@@ -234,8 +283,6 @@ class Yield {
 					
 					_case.values = [macro $v { _index - 1 } ];
 					
-					hasYield = true;
-					
 				case macro @:yield break:
 					
 					
@@ -247,7 +294,6 @@ class Yield {
 		}
 		
 		if (result.length > 0) {
-			generator.fields.push( { name: 'state$state', access: [APublic], kind: FVar( macro :Int ), pos: exprs[0].pos } );
 			state++;
 			finalizeCases( result );
 		}
