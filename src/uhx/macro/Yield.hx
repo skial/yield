@@ -34,15 +34,13 @@ class Yield {
 	
 	public static var cls:ClassType = null;
 	public static var generator:TypeDefinition = null;
-	//public static var hasYield:Bool = false;
 	
 	public static function handler(cls:ClassType, fields:Array<Field>):Array<Field> {
 		Yield.cls = cls;
 		
 		if (!Context.defined( 'display' )) for (field in fields) switch (field.kind) {
 			case FFun(method) if (method.expr != null):
-				//hasYield = false;
-				state = 0;
+				indent = state = 0;
 				setupYieldClass( generator = createYieldClass( field.name ) );
 				entry( method.expr, field.name );
 				finalizeYieldClass( generator, method );
@@ -167,7 +165,7 @@ class Yield {
 								if ($ident == null ) $ident = $start;
 								while ($ident < $end) {
 									$block;
-									$ident++;
+									if ($i { 'state' + (state-1) } == 0 ) $ident++;
 									if ($ident == $end ) $i { 'state' + (state-1) } = -1;
 									break;
 								}
@@ -213,7 +211,7 @@ class Yield {
 	
 	public static function finalizeYieldClass(t:TypeDefinition, f:Function) {
 		var result = false;
-		//trace( t.printTypeDefinition() );
+		
 		if (t.fields.exists( 'move' )) switch (t.fields.get( 'move' ).kind) {
 			case FFun(m): 
 				switch (m.expr.expr) {
@@ -222,7 +220,18 @@ class Yield {
 							t.fields.push( { name: 'state$i', access: [APublic], kind: FVar( macro :Int ), pos: exprs[0].pos } );
 							macro $i { 'state$i' } = 0;
 						} ];
+						
+						
+						var anames = [];
+						for (arg in f.args) {
+							t.fields.get( 'new' ).args().push( arg );
+							t.fields.push( { name: arg.name, access: [APublic], kind: FVar( arg.type ), pos: f.expr.pos } );
+							es.push( Context.parse('this.${arg.name} = ${arg.name}', f.expr.pos) );
+							anames.push( arg.name );
+						}
+						
 						t.fields.get( 'new' ).body( { expr: EBlock( es ), pos: es[0].pos } );
+						
 						var copy = exprs.copy();
 						t.fields.get( 'next' ).ret( f.ret );
 						
@@ -233,7 +242,7 @@ class Yield {
 						
 						Context.defineType( t );
 						
-						f.expr = Context.parse( 'return new ${t.path()}()', f.expr.pos );
+						f.expr = Context.parse( 'return new ${t.path()}(${anames.join("\'")})', f.expr.pos );
 						
 						trace( t.printTypeDefinition() );
 						trace( f );
