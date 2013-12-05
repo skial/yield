@@ -141,10 +141,18 @@ class Yield {
 				}
 				
 			case macro var $ident:$type = $expr:
+				var ctype = type;
+				
+				if (ctype == null) try {
+					ctype = Context.typeof( expr ).toCType();
+				} catch (e:Dynamic) { 
+					// Who care's.
+				}
+				
 				generator.fields.push( {
 					name: ident.toString(),
 					access: [APublic],
-					kind: FVar( type == null ? Context.typeof( expr ).toCType() : type ),
+					kind: FVar( ctype ),
 					pos: e.pos,
 				} );
 				
@@ -176,7 +184,7 @@ class Yield {
 					}
 					
 					hasYield = true;
-					var field = generator.fields[generator.fields.length -1];
+					/*var field = generator.fields[generator.fields.length -1];
 					
 					switch (field.getMethod().expr) {
 						case { expr: EBlock(es), pos: pos } :
@@ -197,9 +205,24 @@ class Yield {
 							
 						case _:
 							
-					}
+					}*/
+					loopBlock( generator.fields[generator.fields.length -1] );
 					
 				}
+				
+			case macro while ($cond) $block:
+				
+				if (loop( block, n )) {
+					
+					e.expr = (macro if ($cond) $block).expr;
+					
+					hasYield = true;
+					loopBlock( generator.fields[generator.fields.length -1] );
+					
+				}
+				
+			case macro @:yield break:
+				e.expr = ( macro $i { 'state' + (state-1) } = -1 ).expr;
 				
 			case _:
 				e.iter( function(ee) if (loop(ee, n)) hasYield = true );
@@ -207,6 +230,29 @@ class Yield {
 		}
 		
 		return hasYield;
+	}
+	
+	public static function loopBlock(field:Field) {
+		switch (field.getMethod().expr) {
+			case { expr: EBlock(es), pos: pos } :
+				for (e in es) switch (e) {
+					case { expr: ESwitch(ident, cases, _), pos: pos } :
+						switch (cases[cases.length - 1].expr) {
+							case { expr: EBlock(es), pos: pos } :
+								es.pop();
+								es.push( macro $ident = 0 );
+								
+							case _:
+								
+						}
+						
+					case _:
+						
+				}
+				
+			case _:
+				
+		}
 	}
 	
 	public static function finalizeYieldClass(t:TypeDefinition, f:Function) {
@@ -293,7 +339,7 @@ class Yield {
 					_case.values = [macro $v { _index - 1 } ];
 					
 				case macro @:yield break:
-					
+					_prev.push( macro $i { 'state$state' } = -1 );
 					
 				case _:
 					_prev.push( expr );
