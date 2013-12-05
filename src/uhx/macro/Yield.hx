@@ -144,7 +144,7 @@ class Yield {
 				generator.fields.push( {
 					name: ident.toString(),
 					access: [APublic],
-					kind: FVar( type ),
+					kind: FVar( type == null ? Context.typeof( expr ).toCType() : type ),
 					pos: e.pos,
 				} );
 				
