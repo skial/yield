@@ -206,16 +206,7 @@ class Yield {
 				if (loop( ifblock, n )) {
 					hasYield = true;
 					cond.expr = (macro $e { Reflect.copy(cond) } && $i { stateName() } > -1).expr;
-					ifblock.expr = (macro { $e { Reflect.copy(ifblock) }; /*return current;*/ } ).expr;
-					
-					/*switch (cond) {
-						case { expr: EBinop(op, v1, v2), pos: pos } :
-							if (checkIdent( v1.toString() )) v1.expr = Context.parse('this.${v1.toString()}', v1.pos).expr;
-							if (checkIdent( v2.toString() )) v2.expr = Context.parse('this.${v2.toString()}', v2.pos).expr;
-							
-						case _:
-							
-					}*/
+					ifblock.expr = (macro { $e { Reflect.copy(ifblock) }; return current; } ).expr;
 				}
 				
 				if (elseblock != null && loop( elseblock, n )) {
