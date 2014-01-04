@@ -100,7 +100,20 @@ class Yield {
 				} else {
 					var hasYield = false;
 					copy.iter( function (ee) if (loop(ee, n)) hasYield = true );
-					if (hasYield) generator.fields.get( 'move' ).getMethod().expr.expr = EBlock( copy );
+					
+					if (hasYield) {
+						for (c in copy) {
+							switch (c) {
+								case macro var $ident:$type = $expr if (checkIdent( ident.toString() ) ):
+									copy.remove( c );
+									
+								case _:
+									
+							}
+						}
+						
+						generator.fields.get( 'move' ).getMethod().expr.expr = EBlock( copy );
+					}
 				}
 				
 			case _:
@@ -145,10 +158,6 @@ class Yield {
 					if (hasYield) e.expr = EBlock( copy );
 				}
 				
-			/*case macro var $ident:$type = $expr:
-				var tmp = liftIdent( ident.toString(), type, expr );
-				if (tmp != null) e.expr = tmp.expr;*/
-				
 			case macro for ($ident in $expr) $block:
 				liftIdent( ident.toString(), null, expr );
 				
@@ -162,7 +171,7 @@ class Yield {
 								while ($ident < $end) {
 									$block;
 									if ($i { stateName() } == 0 ) $ident++;
-									if ($ident == $end ) $i { stateName() } = -1;
+									if ($ident == $end ) $i { stateName() } = -2;
 									break;
 								}
 							} ).expr;
@@ -187,6 +196,7 @@ class Yield {
 				}
 				
 			case { expr: EIf(cond, ifblock, elseblock), pos: pos } :
+				
 				switch(ifblock) {
 					case { expr: EBlock(es), pos: pos } :
 					case _: 
@@ -195,8 +205,17 @@ class Yield {
 				
 				if (loop( ifblock, n )) {
 					hasYield = true;
-					cond.expr = (macro $e { Reflect.copy(cond) } && $i { stateName() } != -1).expr;
-					ifblock.expr = (macro { $e { Reflect.copy(ifblock) }; return current; } ).expr;
+					cond.expr = (macro $e { Reflect.copy(cond) } && $i { stateName() } > -1).expr;
+					ifblock.expr = (macro { $e { Reflect.copy(ifblock) }; /*return current;*/ } ).expr;
+					
+					/*switch (cond) {
+						case { expr: EBinop(op, v1, v2), pos: pos } :
+							if (checkIdent( v1.toString() )) v1.expr = Context.parse('this.${v1.toString()}', v1.pos).expr;
+							if (checkIdent( v2.toString() )) v2.expr = Context.parse('this.${v2.toString()}', v2.pos).expr;
+							
+						case _:
+							
+					}*/
 				}
 				
 				if (elseblock != null && loop( elseblock, n )) {
@@ -209,36 +228,6 @@ class Yield {
 		}
 		
 		return hasYield;
-	}
-	
-	public static function loopBlock(field:Field) {
-		switch (field.kind) {
-			case FFun(m):
-				switch (m.expr) {
-					case { expr: EBlock(es), pos: pos } :
-						for (e in es) switch (e) {
-							case { expr: ESwitch(ident, cases, _), pos: pos } :
-								switch (cases[cases.length - 1].expr) {
-									case { expr: EBlock(es), pos: pos } :
-										es.pop();
-										es.push( macro $ident = 0 );
-										
-									case _:
-										
-								}
-								
-							case _:
-								
-						}
-						
-					case _:
-						
-				}
-				
-			case _:
-				
-		}
-		
 	}
 	
 	public static function finalizeYieldClass(t:TypeDefinition, f:Function) {
@@ -269,7 +258,7 @@ class Yield {
 						copy.push( macro return current );
 						m.expr.expr = EBlock( copy );
 						t.fields.get( 'next' ).body( macro { return move(); } );
-						t.fields.get( 'hasNext' ).body( macro return state0 != -1 ).ret( macro:Bool );
+						t.fields.get( 'hasNext' ).body( macro return state0 > -1 ).ret( macro:Bool );
 						
 						Context.defineType( t );
 						
@@ -290,15 +279,50 @@ class Yield {
 		return result;
 	}
 	
+	/**
+	 * -1 == Error
+	 * -2 == End
+	 */
+	
 	public static function finalizeCases(cases:Array<Case>) {
 		switch (cases[cases.length - 1].expr) {
 			case { expr: EBlock(es), pos: pos } :
 				es.pop();
-				es.push( macro $i{ stateName() } = -1 );
+				es.push( macro $i{ stateName() } = -2 );
 				
 			case _:
 				
 		}
+	}
+	
+	public static function loopBlock(field:Field) {
+		switch (field.kind) {
+			case FFun(m):
+				switch (m.expr) {
+					case { expr: EBlock(es), pos: pos } :
+						for (e in es) switch (e) {
+							case { expr: ESwitch(ident, cases, _), pos: pos } :
+								switch (cases[cases.length - 1].expr) {
+									case { expr: EBlock(es), pos: pos } :
+										es.pop();
+										es.push( macro if ($ident > -2) $ident = 0 );
+										
+									case _:
+										
+								}
+								
+							case _:
+								
+						}
+						
+					case _:
+						
+				}
+				
+			case _:
+				
+		}
+		
 	}
 	
 	public static function liftIdent(ident:String, ?ctype:ComplexType, ?expr:Expr) {
@@ -320,6 +344,10 @@ class Yield {
 		}
 	}
 	
+	public static function checkIdent(ident:String) {
+		return generator.fields.exists( ident );
+	}
+	
 	public static function transformEBlock(exprs:Array<Expr>):Array<Case> {
 		var result = [];
 		var _prev = [];
@@ -327,15 +355,15 @@ class Yield {
 		var _case = null;
 		var _index = 0;
 		
-		for (expr in exprs) {
+		for (e in exprs) {
 			
 			_case = { values: [macro 0], guard: null, expr: null };
 			
-			switch (expr) {
+			switch (e) {
 				case macro var $ident:$type = $expr:
-					// changing `expr.expr` to `liftIdent(_,_,_).expr` causes a silent fail - why??
 					liftIdent( ident.toString(), type, expr );
-					var array = result.length == 0 ? newBody : _prev;
+					//var array = result.length == 0 ? newBody : _prev;
+					var array = newBody;
 					array.push( macro $i { ident.toString() } = $expr );
 					
 				case macro @:yield return $e:
@@ -349,10 +377,10 @@ class Yield {
 					_case.values = [macro $v { _index - 1 } ];
 					
 				case macro @:yield break:
-					expr.expr = (macro { $i { stateName() } = -1; } ).expr;
+					e.expr = (macro { $i { stateName() } = -2; } ).expr;
 					
 				case _:
-					_prev.push( expr );
+					_prev.push( e );
 					
 			}
 			
@@ -367,7 +395,7 @@ class Yield {
 	}
 	
 	public static function stateName():String {
-		return 'state' + (state-1 == -1 ? 0 : state-1);
+		return 'state' + (state-1 < 0 ? 0 : state-1);
 	}
 	
 }
