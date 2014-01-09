@@ -73,11 +73,10 @@ class Yield {
 	}
 	
 	public static function setupYieldClass(t:TypeDefinition) {
-		for (method in ['new', 'hasNext', 'next', 'move']) if (!t.fields.exists( method )) {
+		for (method in ['new', 'hasNext', 'next']) if (!t.fields.exists( method )) {
 			t.fields.push( method.mkField().mkPublic().toFFun().body( macro { } ) );
 		}
 		
-		//if (!t.fields.exists( 'state' )) t.fields.push( 'state'.mkField().mkPublic().toFVar( macro :Int ) );
 		if (!t.fields.exists( 'current' )) t.fields.push( 'current'.mkField().mkPublic().toFVar( macro :Dynamic ) );
 		if (!t.fields.exists( 'iterator' )) t.fields.push( 'iterator'.mkField().mkPublic().toFFun().body( macro return this ) );
 	}
@@ -92,7 +91,7 @@ class Yield {
 					
 					for (c in cases) loop( c.expr, n, c.expr );
 					
-					generator.fields.get( 'move' ).getMethod().expr.expr = EBlock( [ { 
+					generator.fields.get( 'next' ).getMethod().expr.expr = EBlock( [ { 
 						expr: ESwitch( macro $i { stateName() }, cases, null ), 
 						pos: e.pos 
 					} ] );
@@ -112,7 +111,7 @@ class Yield {
 							}
 						}
 						
-						generator.fields.get( 'move' ).getMethod().expr.expr = EBlock( copy );
+						generator.fields.get( 'next' ).getMethod().expr.expr = EBlock( copy );
 					}
 				}
 				
@@ -224,7 +223,7 @@ class Yield {
 	public static function finalizeYieldClass(t:TypeDefinition, f:Function) {
 		var result = false;
 		
-		if (t.fields.exists( 'move' )) switch (t.fields.get( 'move' ).kind) {
+		if (t.fields.exists( 'next' )) switch (t.fields.get( 'next' ).kind) {
 			case FFun(m): 
 				switch (m.expr.expr) {
 					case EBlock(exprs) if (exprs.length > 0):
@@ -248,15 +247,12 @@ class Yield {
 						
 						copy.push( macro return current );
 						m.expr.expr = EBlock( copy );
-						t.fields.get( 'next' ).body( macro { return move(); } );
 						t.fields.get( 'hasNext' ).body( macro return state0 > -1 ).ret( macro:Bool );
 						
 						Context.defineType( t );
 						
 						f.expr = Context.parse( 'return new ${t.path()}(${anames.join("\'")})', f.expr.pos );
 						
-						trace( t.printTypeDefinition() );
-						trace( f );
 					case _:
 						
 						
