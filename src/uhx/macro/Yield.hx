@@ -3,7 +3,7 @@ package uhx.macro;
 import haxe.macro.Type;
 import haxe.macro.Expr;
 import haxe.macro.Context;
-import uhx.macro.klas.Handler;
+import uhx.macro.KlasImpl;
 
 using uhu.macro.Jumla;
 using haxe.macro.ExprTools;
@@ -16,11 +16,11 @@ class Yield {
 
 	private static function initialize() {
 		try {
-			if (!Handler.setup) {
-				Handler.initalize();
+			if (!KlasImpl.setup) {
+				KlasImpl.initalize();
 			}
 			
-			Handler.DEFAULTS.push(Yield.handler);
+			KlasImpl.DEFAULTS.push(Yield.handler);
 		} catch (e:Dynamic) {
 			// This assumes that `implements Klas` is not being used
 			// but `@:autoBuild` or `@:build` metadata is being used 
