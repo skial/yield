@@ -20,7 +20,7 @@ class Yield {
 				KlasImpl.initalize();
 			}
 			
-			KlasImpl.DEFAULTS.push(Yield.handler);
+			KlasImpl.DEFAULTS.set('Yield', Yield.handler);
 		} catch (e:Dynamic) {
 			// This assumes that `implements Klas` is not being used
 			// but `@:autoBuild` or `@:build` metadata is being used 
