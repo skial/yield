@@ -5,7 +5,9 @@ import haxe.macro.Expr;
 import haxe.macro.Context;
 import uhx.macro.KlasImpl;
 
-using uhu.macro.Jumla;
+using Lambda;
+using uhx.macro.Yield;
+using haxe.macro.TypeTools;
 using haxe.macro.ExprTools;
 using haxe.macro.MacroStringTools;
 
@@ -14,7 +16,7 @@ using haxe.macro.MacroStringTools;
  * @author Skial Bainn
  */
 class Yield {
-
+	
 	private static function initialize() {
 		try {
 			if (!KlasImpl.setup) {
@@ -38,11 +40,10 @@ class Yield {
 		if (!Context.defined( 'display' )) for (field in fields) switch (field.kind) {
 			case FFun(method) if (method.expr != null):
 				indent = state = 0;
-				newBody = [];
-				var generator = createYieldClass( field.name, cls );
-				setupYieldClass( cls, generator );
-				entry( method.expr, field.name, cls, fields, generator );
-				finalizeYieldClass( cls, generator, method );
+				ctorBody = [];
+				var generator = cls.createGenerator( field.name );
+				method.expr.startLoop( fields, generator );
+				generator.finalize( cls, method );
 				
 			case _:
 		}
@@ -50,54 +51,49 @@ class Yield {
 		return fields;
 	}
 	
-	public static var name:String = null;
-	public static var cases:Array<Expr> = null;
 	public static var state:Int = 0;
 	public static var indent:Int = 0;
 	public static var block:Expr = null;
-	public static var newBody:Array<Expr> = null;
+	public static var cases:Array<Expr> = null;
+	public static var ctorBody:Array<Expr> = null;
 	
-	public static function createYieldClass(n:String, cls:ClassType):TypeDefinition {
-		return {
-			name: '${cls.name}_$n',
-			pack: cls.pack,
-			pos: cls.pos,
-			meta: [],
-			params: [],
-			isExtern: false,
-			kind: TDClass(),
-			fields: [],
+	public static function createGenerator(cls:ClassType, methodName:String):TypeDefinition {
+		var ocls = TPath( { name:cls.name, pack:cls.pack } );
+		var td = macro class TEMP {
+			public var ocls:$ocls;
+			public var current:Dynamic;
+			
+			public function new() {	}
+			public function hasNext():Bool { }
+			public function next() { }
+			public function iterator() return this;
 		}
+		td.name = cls.name + '_' + methodName;
+		td.pack = cls.pack;
+		return td;
 	}
 	
-	public static function setupYieldClass(cls:ClassType, t:TypeDefinition) {
-		for (method in ['new', 'hasNext', 'next']) if (!t.fields.exists( method )) {
-			t.fields.push( method.mkField().mkPublic().toFFun().body( macro { } ) );
-		}
-		
-		if (!t.fields.exists( 'ocls' )) t.fields.push( 'ocls'.mkField().mkPublic().toFVar( Context.getType( cls.path() ).toCType() ) );
-		if (!t.fields.exists( 'current' )) t.fields.push( 'current'.mkField().mkPublic().toFVar( macro :Dynamic ) );
-		if (!t.fields.exists( 'iterator' )) t.fields.push( 'iterator'.mkField().mkPublic().toFFun().body( macro return this ) );
-	}
-	
-	public static function entry(e:Expr, n:String, cls:ClassType, fields:Array<Field>, g:TypeDefinition) {
+	public static function startLoop(e:Expr, fields:Array<Field>, g:TypeDefinition) {
 		switch (e) {
 			case { expr: EBlock(es), pos: pos } :
 				var copy = es.copy();
-				var cases = transformEBlock( copy, cls, fields, g );
+				var cases = transformEBlock( copy, fields, g );
 				
 				if (cases.length > 0) {
 					
-					for (c in cases) loop( c.expr, n, cls, fields, g, c.expr );
+					for (c in cases) loop( c.expr, fields, g );
 					
-					g.fields.get( 'next' ).getMethod().expr.expr = EBlock( [ { 
-						expr: ESwitch( macro $i { stateName() }, cases, null ), 
-						pos: e.pos 
-					} ] );
+					g.fields.get( 'next' ).body( { 
+						expr: EBlock( [ { 
+							expr: ESwitch( macro $i { stateName() }, cases, null ), 
+							pos: e.pos 
+						} ] ),
+						pos: pos
+					} );
 					
 				} else {
 					var hasYield = false;
-					copy.iter( function (ee) if (loop( ee, n, cls, fields, g )) hasYield = true );
+					copy.iter( function (ee) if (loop( ee, fields, g )) hasYield = true );
 					
 					if (hasYield) {
 						for (c in copy) {
@@ -110,22 +106,25 @@ class Yield {
 							}
 						}
 						
-						g.fields.get( 'next' ).getMethod().expr.expr = EBlock( copy );
+						switch (g.fields.get( 'next' ).kind) {
+							case FFun(m): m.expr.expr = EBlock( copy );
+							case _:
+						}
 					}
 				}
 				
 			case _:
-				entry( e = { expr: EBlock( [ e ] ), pos: e.pos }, n, cls, fields, g );
+				startLoop( e = { expr: EBlock( [ e ] ), pos: e.pos }, fields, g );
 		}
 	}
 	
-	public static function loop(e:Expr, n:String, cls:ClassType, fields:Array<Field>, g:TypeDefinition, ?r:Expr = null):Bool {
+	public static function loop(e:Expr, fields:Array<Field>, g:TypeDefinition):Bool {
 		var hasYield = false;
 		
 		switch (e) {
 			case { expr: EBlock(es), pos: pos } :
 				var copy = es.copy();
-				var cases = transformEBlock( copy, cls, fields, g );
+				var cases = transformEBlock( copy, fields, g );
 				
 				if (cases.length > 0) {
 					
@@ -149,21 +148,21 @@ class Yield {
 					
 					indent++;
 					
-					for (c in cases) loop( c.expr, n, cls, fields, g, c.expr );
+					for (c in cases) loop( c.expr, fields, g );
 					
 				} else {
-					copy.iter( function(ee) if (loop(ee, n, cls, fields, g)) hasYield = true );
+					copy.iter( function(ee) if (loop(ee, fields, g)) hasYield = true );
 					if (hasYield) e.expr = EBlock( copy );
 				}
 				
 			case macro for ($ident in $expr) $block:
 				liftIdent( ident.toString(), g, null, expr );
 				
-				if (loop( block, n, cls, fields, g )) {
+				if (loop( block, fields, g )) {
 					
 					switch (expr) {
 						case macro $start...$end:
-							g.fields.get( ident.toString() ).toFVar( Context.typeof( start ).toCType() );
+							g.fields.get( ident.toString() ).kind == FVar( Context.typeof( start ).toComplexType() );
 							e.expr = ( macro {
 								if ($ident == null ) $ident = $start;
 								while ($ident < $end) {
@@ -184,7 +183,7 @@ class Yield {
 				}
 				
 			case macro while ($cond) $block:
-				if (loop( block, n, cls, fields, g )) {
+				if (loop( block, fields, g )) {
 					
 					e.expr = (macro if ($cond) $block).expr;
 					
@@ -201,60 +200,65 @@ class Yield {
 						ifblock.expr = (macro { $e { Reflect.copy( ifblock ) } } ).expr;
 				}
 				
-				if (loop( ifblock, n, cls, fields, g )) {
+				if (loop( ifblock, fields, g )) {
 					hasYield = true;
 					cond.expr = (macro $e { Reflect.copy(cond) } && $i { stateName() } > -1).expr;
 					ifblock.expr = (macro { $e { Reflect.copy(ifblock) }; return current; } ).expr;
 				}
 				
-				if (elseblock != null && loop( elseblock, n, cls, fields, g )) {
+				if (elseblock != null && loop( elseblock, fields, g )) {
 					hasYield = true;
 				}
 				
 			case _:
-				e.iter( function(ee) if (loop( ee, n, cls, fields, g )) hasYield = true );
+				e.iter( function(ee) if (loop( ee, fields, g )) hasYield = true );
 				
 		}
 		
 		return hasYield;
 	}
 	
-	public static function finalizeYieldClass(cls:ClassType, t:TypeDefinition, f:Function) {
-		var result = false;
+	public static function finalize(td:TypeDefinition, cls:ClassType, f:Function) {
+		var next = td.fields.get( 'next' );
 		
-		if (t.fields.exists( 'next' )) switch (t.fields.get( 'next' ).kind) {
+		if (next != null) switch (next.kind) {
 			case FFun(m): 
 				switch (m.expr.expr) {
 					case EBlock(exprs) if (exprs.length > 0):
+						next.ret( f.ret );
+						
+						var ctor = td.fields.get( 'new' );
+						var ctor_args = ctor.args();
+						
 						for (i in 0...state) { 
-							t.fields.push( { name: 'state$i', access: [APublic], kind: FVar( macro :Int ), pos: exprs[0].pos } );
-							newBody.push( macro $i { 'state$i' } = 0 );
+							td.fields.push( { name: 'state$i', access: [APublic], kind: FVar( macro :Int ), pos: exprs[0].pos } );
+							ctorBody.push( macro $i { 'state$i' } = 0 );
 						};
 						
-						var anames = [];
+						var arg_names = [];
+						
 						for (arg in f.args) {
-							t.fields.get( 'new' ).args().push( arg );
-							t.fields.push( { name: arg.name, access: [APublic], kind: FVar( arg.type ), pos: f.expr.pos } );
-							newBody.push( Context.parse('this.${arg.name} = ${arg.name}', f.expr.pos) );
-							anames.push( arg.name );
+							ctor_args.push( arg );
+							arg_names.push( arg.name );
+							td.fields.push( { name: arg.name, access: [APublic], kind: FVar( arg.type ), pos: f.expr.pos } );
+							ctorBody.push( Context.parse('this.${arg.name} = ${arg.name}', f.expr.pos) );
 						}
 						
 						// Add a reference to the calling class as an arg
-						anames.push( 'this' );
-						newBody.push( Context.parse('this.ocls = ocls', f.expr.pos) );
-						t.fields.get( 'new').args().push( { name:'ocls', opt:false, type:Context.getType( cls.path() ).toCType() } );
+						arg_names.push( 'this' );
+						ctorBody.push( Context.parse('this.ocls = ocls', f.expr.pos) );
+						ctor_args.push( { name: 'ocls', opt: false, type: TPath( { name:cls.name, pack:cls.pack } ) } );
 						
-						t.fields.get( 'new' ).body( { expr: EBlock( newBody ), pos: newBody[0].pos } );
+						ctor.body( { expr: EBlock( ctorBody ), pos: ctorBody[0].pos } );
 						
 						var copy = exprs.copy();
-						t.fields.get( 'next' ).ret( f.ret );
 						
 						copy.push( macro return current );
 						m.expr.expr = EBlock( copy );
-						t.fields.get( 'hasNext' ).body( macro return state0 > -1 ).ret( macro:Bool );
+						td.fields.get( 'hasNext' ).body( macro return state0 > -1 );
 						
-						Context.defineType( t );
-						f.expr = Context.parse( 'return new ${t.path()}(${anames.join(",")})', f.expr.pos );
+						f.expr = { expr:EBlock( [Context.parse( 'return new ${td.pack.toDotPath(td.name)}(${arg_names.join(",")})', f.expr.pos )] ), pos:f.expr.pos };
+						Context.defineType( td );
 						
 					case _:
 						
@@ -265,8 +269,6 @@ class Yield {
 				
 				
 		}
-		
-		return result;
 	}
 	
 	/**
@@ -316,10 +318,10 @@ class Yield {
 	}
 	
 	public static function liftIdent(ident:String, g:TypeDefinition, ?ctype:ComplexType, ?expr:Expr) {
-		if (!g.fields.exists( ident )) {
+		if (!g.fields.match( ident )) {
 			
 			if (ctype == null) try {
-				ctype = Context.typeof( expr ).toCType();
+				ctype = Context.typeof( expr ).toComplexType();
 			} catch (e:Dynamic) { 
 				// Who care's.
 			}
@@ -335,10 +337,11 @@ class Yield {
 	}
 	
 	public static function checkIdent(ident:String, g:TypeDefinition) {
-		return g.fields.exists( ident );
+		return g.fields.match( ident );
 	}
 	
-	public static function transformEBlock(exprs:Array<Expr>, cls:ClassType, fields:Array<Field>, g:TypeDefinition):Array<Case> {
+	public static function transformEBlock(exprs:Array<Expr>, fields:Array<Field>, g:TypeDefinition):Array<Case> {
+		var cls = Context.getLocalClass().get();
 		var result = [];
 		var _prev = [];
 		var _exprs = [];
@@ -350,7 +353,7 @@ class Yield {
 			_case = { values: [macro 0], guard: null, expr: null };
 			
 			switch (e) {
-				case macro $ident($a { args } ) if (fields.exists( ident.toString() )):
+				case macro $ident($a { args } ) if (fields.match( ident.toString() )):
 					var field = fields.get( ident.toString() );
 					var call = field.access.indexOf( AStatic ) == -1 ? 'ocls' : cls.pack.toDotPath( cls.name );
 					var ee = Context.parse('$call.${ident.toString()}', e.pos);
@@ -359,9 +362,7 @@ class Yield {
 					
 				case macro var $ident:$type = $expr:
 					liftIdent( ident.toString(), g, type, expr );
-					//var array = result.length == 0 ? newBody : _prev;
-					var array = newBody;
-					array.push( macro $i { ident.toString() } = $expr );
+					ctorBody.push( macro $i { ident.toString() } = $expr );
 					
 				case macro @:yield return $e:
 					_exprs = [macro $i { 'state$state' } = -1, macro current = $e].concat( _prev );
@@ -394,5 +395,15 @@ class Yield {
 	public static function stateName():String {
 		return 'state' + (state-1 < 0 ? 0 : state-1);
 	}
+	
+	public static function get(fields:Array<Field>, ident:String):Field return fields.filter( function(f) return f.name == ident )[0];
+	public static function match(fields:Array<Field>, ident:String) return fields.exists( function(f) return f.name == ident );
+	public static function method(field:Field) return switch (field.kind) {
+		case FFun(m): m;
+		case _: null;
+	}
+	public static function args(field:Field) return method( field ).args;
+	public static function body(field:Field, nbody:Expr) method( field ).expr = nbody;
+	public static function ret(field:Field, nret:ComplexType) method( field ).ret = nret;
 	
 }
