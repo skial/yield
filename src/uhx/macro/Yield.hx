@@ -3,6 +3,7 @@ package uhx.macro;
 import haxe.macro.Type;
 import haxe.macro.Expr;
 import haxe.macro.Context;
+import haxe.macro.Printer;
 import uhx.macro.KlasImpl;
 
 using Lambda;
@@ -38,12 +39,28 @@ class Yield {
 	public static function handler(cls:ClassType, fields:Array<Field>):Array<Field> {
 		
 		if (!Context.defined( 'display' )) for (field in fields) switch (field.kind) {
-			case FFun(method) if (method.expr != null):
+			case FFun(method) if (method.expr != null && field.meta.exists(function(m) return m.name == ':generator')):
 				indent = state = 0;
 				ctorBody = [];
 				var generator = cls.createGenerator( field.name );
 				method.expr.startLoop( fields, generator );
 				generator.finalize( cls, method );
+				
+				
+			case _:
+		} 
+		
+		if (Context.defined( 'display' )) for (field in fields) switch (field.kind) {
+			case FFun(method) if (field.meta.exists(function(m) return m.name == ':generator')):
+				var block = switch (method.expr) {
+					case { expr:EBlock(_), pos:_ }: method.expr;
+					case _: macro { $ { method.expr } };
+				}
+				
+				method.expr = macro { return {
+					hasNext:function():Bool return true,
+					next:function() untyped $block,
+				} };
 				
 			case _:
 		}
@@ -156,15 +173,15 @@ class Yield {
 				}
 				
 			case macro for ($ident in $expr) $block:
-				liftIdent( ident.toString(), g, null, expr );
+				liftIdent( ident.toString(), g, ident.try_ctype(), expr );
 				
 				if (loop( block, fields, g )) {
 					
 					switch (expr) {
 						case macro $start...$end:
-							g.fields.get( ident.toString() ).kind == FVar( Context.typeof( start ).toComplexType() );
+							g.fields.get( ident.toString() ).kind == FVar( macro:Int );
 							e.expr = ( macro {
-								if ($ident == null ) $ident = $start;
+								if ($ident == null) $ident = $start;
 								while ($ident < $end) {
 									$block;
 									if ($i { stateName() } == 0 ) $ident++;
@@ -320,12 +337,6 @@ class Yield {
 	public static function liftIdent(ident:String, g:TypeDefinition, ?ctype:ComplexType, ?expr:Expr) {
 		if (!g.fields.match( ident )) {
 			
-			if (ctype == null) try {
-				ctype = Context.typeof( expr ).toComplexType();
-			} catch (e:Dynamic) { 
-				// Who care's.
-			}
-			
 			g.fields.push( {
 				name: ident,
 				access: [APublic],
@@ -361,10 +372,10 @@ class Yield {
 					_prev.push( macro $ee($a { args } ) );
 					
 				case macro var $ident:$type = $expr:
-					liftIdent( ident.toString(), g, type, expr );
+					liftIdent( ident.toString(), g, type == null ? expr.try_ctype() : type, expr );
 					ctorBody.push( macro $i { ident.toString() } = $expr );
 					
-				case macro @:yield return $e:
+				case macro return $e:
 					_exprs = [macro $i { 'state$state' } = -1, macro current = $e].concat( _prev );
 					_prev = [];
 					_case.expr = { expr: EBlock( _exprs ), pos: e.pos };
@@ -374,7 +385,7 @@ class Yield {
 					
 					_case.values = [macro $v { _index - 1 } ];
 					
-				case macro @:yield break:
+				case macro break:
 					e.expr = (macro { $i { stateName() } = -2; } ).expr;
 					
 				case _:
@@ -405,5 +416,6 @@ class Yield {
 	public static function args(field:Field) return method( field ).args;
 	public static function body(field:Field, nbody:Expr) method( field ).expr = nbody;
 	public static function ret(field:Field, nret:ComplexType) method( field ).ret = nret;
+	public static inline function try_ctype(expr:Expr) return try Context.typeof( expr ).toComplexType() catch (e:Dynamic) macro:Dynamic;
 	
 }
