@@ -2,9 +2,9 @@ package uhx.macro;
 
 import haxe.macro.Type;
 import haxe.macro.Expr;
+import uhx.macro.KlasImp;
 import haxe.macro.Context;
 import haxe.macro.Printer;
-import uhx.macro.KlasImpl;
 
 using Lambda;
 using uhx.macro.Yield;
@@ -20,11 +20,11 @@ class Yield {
 	
 	private static function initialize() {
 		try {
-			if (!KlasImpl.setup) {
-				KlasImpl.initalize();
+			if (!KlasImp.setup) {
+				KlasImp.initalize();
 			}
 			
-			KlasImpl.DEFAULTS.set('Yield', Yield.handler);
+			KlasImp.FIELD_META.set( ':generator', Yield.handler );
 		} catch (e:Dynamic) {
 			// This assumes that `implements Klas` is not being used
 			// but `@:autoBuild` or `@:build` metadata is being used 
@@ -32,40 +32,37 @@ class Yield {
 		}
 	}
 	
-	public static function build():Array<Field> {
-		return handler( Context.getLocalClass().get(), Context.getBuildFields() );
-	}
-	
-	public static function handler(cls:ClassType, fields:Array<Field>):Array<Field> {
+	public static function handler(cls:ClassType, field:Field):Field {
 		
-		if (!Context.defined( 'display' )) for (field in fields) switch (field.kind) {
-			case FFun(method) if (method.expr != null && field.meta.exists(function(m) return m.name == ':generator')):
-				indent = state = 0;
-				ctorBody = [];
-				var generator = cls.createGenerator( field.name );
-				method.expr.startLoop( fields, generator );
-				generator.finalize( cls, method );
+		switch (field.kind) {
+			case FFun(method):
+				if (!Context.defined( 'display' )) {
+					
+					indent = state = 0;
+					ctorBody = [];
+					var generator = cls.createGenerator( field.name );
+					method.expr.startLoop( Context.getBuildFields(), generator );
+					generator.finalize( cls, method );
+					
+				} else {
+					
+					var block = switch (method.expr) {
+						case { expr:EBlock(_), pos:_ }: method.expr;
+						case _: macro { $ { method.expr } };
+					}
+					
+					method.expr = macro { return {
+						hasNext:function():Bool return true,
+						next:function() untyped $block,
+					} };
+					
+				}
 				
 				
 			case _:
 		} 
 		
-		if (Context.defined( 'display' )) for (field in fields) switch (field.kind) {
-			case FFun(method) if (field.meta.exists(function(m) return m.name == ':generator')):
-				var block = switch (method.expr) {
-					case { expr:EBlock(_), pos:_ }: method.expr;
-					case _: macro { $ { method.expr } };
-				}
-				
-				method.expr = macro { return {
-					hasNext:function():Bool return true,
-					next:function() untyped $block,
-				} };
-				
-			case _:
-		}
-		
-		return fields;
+		return field;
 	}
 	
 	public static var state:Int = 0;
