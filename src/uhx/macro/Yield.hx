@@ -20,10 +20,7 @@ class Yield {
 	
 	private static function initialize() {
 		try {
-			if (!KlasImp.setup) {
-				KlasImp.initalize();
-			}
-			
+			KlasImp.initalize();
 			KlasImp.FIELD_META.set( ':generator', Yield.handler );
 		} catch (e:Dynamic) {
 			// This assumes that `implements Klas` is not being used
