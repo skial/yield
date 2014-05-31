@@ -29,6 +29,15 @@ class Yield {
 		}
 	}
 	
+	public static function build():Array<Field> {
+		var cls = Context.getLocalClass().get();
+		var fields = Context.getBuildFields();
+		for (field in fields.filter( function(f) return f.meta.exists( function(m) return m.name == ':generator') )) {
+			field = handler( cls, field );
+		}
+		return fields;
+	}
+	
 	public static function handler(cls:ClassType, field:Field):Field {
 		
 		switch (field.kind) {
