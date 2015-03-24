@@ -21,7 +21,7 @@ class Yield {
 	private static function initialize() {
 		try {
 			KlasImp.initialize();
-			KlasImp.FIELD_META.set( ':generator', Yield.handler );
+			KlasImp.fieldMetadata.add( ':generator', Yield.handler );
 		} catch (e:Dynamic) {
 			// This assumes that `implements Klas` is not being used
 			// but `@:autoBuild` or `@:build` metadata is being used 
