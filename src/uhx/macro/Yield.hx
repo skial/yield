@@ -41,12 +41,14 @@ class Yield {
 	public static function handler(cls:ClassType, field:Field):Field {
 		
 		switch (field.kind) {
-			case FFun(method):
+			case FFun(method) if (!field.meta.exists(function(m) return m.name == ':KLAS_YIELD_SKIP')):
 				if (!Context.defined( 'display' )) {
 					
 					indent = state = 0;
 					ctorBody = [];
 					var generator = cls.createGenerator( field.name );
+					if (field.meta == null) field.meta = [];
+					field.meta.push( { name:':KLAS_YIELD_SKIP', params:[], pos:field.pos } );
 					method.expr.startLoop( Context.getBuildFields(), generator );
 					generator.finalize( cls, method );
 					
