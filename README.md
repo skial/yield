@@ -16,7 +16,7 @@ You have two options, use Yield with [Klas](https://github.com/skial/klas/) or n
 
 #### With Klas
 
-```
+```Haxe
 package ;
 
 class Main implements Klas {
@@ -44,7 +44,7 @@ class Main implements Klas {
 #### Without Klas
 
 
-```
+```Haxe
 package ;
 
 @:autoBuild( uhx.macro.Yield.build() )
@@ -76,7 +76,7 @@ Yield converts your methods marked with `@:generator` into
 separate classes. The method in both examples above called
 `test` gets transformed into the following class.
 
-```
+```Haxe
 class Main_test {
         public var ocls : Main;
         public var current : Dynamic;
