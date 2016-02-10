@@ -257,8 +257,8 @@ class Yield {
 			case FFun(m): 
 				switch (m.expr.expr) {
 					case EBlock(exprs) if (exprs.length > 0):
-						next.ret( f.ret );
-						
+						var returnType = cls.toComplexType();
+						if (returnType == null) returnType = f.ret != null ? f.ret : macro:Dynamic;
 						var ctor = td.fields.get( 'new' );
 						var ctor_args = ctor.args();
 						
@@ -315,7 +315,7 @@ class Yield {
 						td.fields.get( 'hasNext' ).body( macro return $statement );
 						
 						f.expr = { expr:EBlock( [Context.parse( 'return new ${td.pack.toDotPath(td.name)}(${arg_names.join(",")})', f.expr.pos )] ), pos:f.expr.pos };
-						if (f.ret != null) f.ret = TPath( { name:'Iterator', pack:[], params: [TPType(f.ret)] } );
+						if (f.ret != null) f.ret = TPath( { name:'Iterator', pack:[], params: [TPType(returnType)] } );
 						//trace( new Printer().printTypeDefinition( td ) );
 						//trace( new Printer().printFunction( f ) );
 						Context.defineType( td );
