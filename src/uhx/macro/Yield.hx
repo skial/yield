@@ -89,7 +89,7 @@ class Yield {
 		var _cls = cls.getClass();
 		var name = _cls.pack.toDotPath( _cls.name );
 		if (name != _cls.module) name = _cls.module + '.' + _cls.name;
-		//trace( _cls.pack, _cls.name, _cls.module, name);
+		
 		var ocls = cls.toComplexType();
 		var td = macro class TEMP {
 			public var ocls:$ocls;
@@ -100,36 +100,8 @@ class Yield {
 			public function next():$returnType { }
 			public function iterator():Iterator<$returnType> return this;
 		}
-		//td.meta.push( { name:':access', params:[macro $i { new Printer().printComplexType(ocls)} ], pos:Context.currentPos() } );
 		td.name = _cls.name + '_' + methodName;
-		//td.pack = _cls.pack.filter(function(s)return !s.startsWith('_'));
 		td.pack = _cls.pack;
-		/*for (field in _cls.fields.get()) {
-			trace( field.name );
-			td.fields.push( switch (field.kind) {
-				case FVar(read, write):
-					{
-						name: field.name,
-						access: [field.isPublic?APublic:APrivate],
-						kind: FVar( field.type.toComplexType(), null ),
-						pos: field.pos,
-					}
-					
-				case FMethod(kind):
-					{
-						name: field.name,
-						access: [field.isPublic?APublic:APrivate],
-						kind: FFun( {
-							ret: field.type.toComplexType(),
-							args: [],
-							expr: null,
-						} ),
-						pos: field.pos,
-					}
-					
-			} );
-			
-		}*/
 		return td;
 	}
 	
