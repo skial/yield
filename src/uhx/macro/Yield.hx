@@ -7,6 +7,7 @@ import haxe.macro.Context;
 import haxe.macro.Printer;
 
 using Lambda;
+using StringTools;
 using uhx.macro.Yield;
 using haxe.macro.TypeTools;
 using haxe.macro.ExprTools;
@@ -40,15 +41,21 @@ class Yield {
 	
 	public static function handler(cls:ClassType, field:Field):Field {
 		
+		if (field.name == 'new') {
+			Context.warning( 'Constructors can not be generators.', field.pos );
+			return field;
+			
+		}
+		
 		switch (field.kind) {
 			case FFun(method):
 				if (!Context.defined( 'display' )) {
 					
 					indent = state = 0;
 					ctorBody = [];
-					var generator = cls.createGenerator( field.name );
+					var generator = Context.getLocalType().createGenerator( field.name, method.ret );
 					method.expr.startLoop( Context.getBuildFields(), generator );
-					generator.finalize( cls, method );
+					generator.finalize( Context.getLocalType(), method );
 					
 				} else {
 					
@@ -77,19 +84,52 @@ class Yield {
 	public static var cases:Array<Expr> = null;
 	public static var ctorBody:Array<Expr> = null;
 	
-	public static function createGenerator(cls:ClassType, methodName:String):TypeDefinition {
-		var ocls = TPath( { name:cls.name, pack:cls.pack } );
+	public static function createGenerator(cls:Type, methodName:String, returnType:Null<ComplexType>):TypeDefinition {
+		if (returnType == null) returnType = macro:Dynamic;
+		var _cls = cls.getClass();
+		var name = _cls.pack.toDotPath( _cls.name );
+		if (name != _cls.module) name = _cls.module + '.' + _cls.name;
+		//trace( _cls.pack, _cls.name, _cls.module, name);
+		var ocls = cls.toComplexType();
 		var td = macro class TEMP {
 			public var ocls:$ocls;
-			public var current:Dynamic;
+			public var current:$returnType;
 			
 			public function new() {	}
 			public function hasNext():Bool { }
-			public function next() { }
-			public function iterator() return this;
+			public function next():$returnType { }
+			public function iterator():Iterator<$returnType> return this;
 		}
-		td.name = cls.name + '_' + methodName;
-		td.pack = cls.pack;
+		//td.meta.push( { name:':access', params:[macro $i { new Printer().printComplexType(ocls)} ], pos:Context.currentPos() } );
+		td.name = _cls.name + '_' + methodName;
+		//td.pack = _cls.pack.filter(function(s)return !s.startsWith('_'));
+		td.pack = _cls.pack;
+		/*for (field in _cls.fields.get()) {
+			trace( field.name );
+			td.fields.push( switch (field.kind) {
+				case FVar(read, write):
+					{
+						name: field.name,
+						access: [field.isPublic?APublic:APrivate],
+						kind: FVar( field.type.toComplexType(), null ),
+						pos: field.pos,
+					}
+					
+				case FMethod(kind):
+					{
+						name: field.name,
+						access: [field.isPublic?APublic:APrivate],
+						kind: FFun( {
+							ret: field.type.toComplexType(),
+							args: [],
+							expr: null,
+						} ),
+						pos: field.pos,
+					}
+					
+			} );
+			
+		}*/
 		return td;
 	}
 	
@@ -238,7 +278,7 @@ class Yield {
 		return hasYield;
 	}
 	
-	public static function finalize(td:TypeDefinition, cls:ClassType, f:Function) {
+	public static function finalize(td:TypeDefinition, cls:Type, f:Function) {
 		var next = td.fields.get( 'next' );
 		
 		if (next != null) switch (next.kind) {
@@ -267,17 +307,45 @@ class Yield {
 						// Add a reference to the calling class as an arg
 						arg_names.push( 'this' );
 						ctorBody.push( Context.parse('this.ocls = ocls', f.expr.pos) );
-						ctor_args.push( { name: 'ocls', opt: false, type: TPath( { name:cls.name, pack:cls.pack } ) } );
+						ctor_args.push( { name: 'ocls', opt: false, type: cls.toComplexType() } );
+						
+						var copy = exprs.copy();
+						function liftUnknownAccess(e:Expr) {
+							switch (e) {
+								case { expr: EConst(CIdent( id )), pos: pos } if (['null', 'true', 'false'].indexOf(id) == -1 && td.fields.get( id ) == null):
+									td.fields.push( { name: id, kind: FProp('get', 'set', macro:Dynamic, null), pos:e.pos } );
+									td.fields.push( { name: 'get_$id', kind: FFun({
+										args:[], 
+										expr: (macro { return $p { ['ocls', id] } }), 
+										ret:null,
+									}), pos: e.pos } );
+									td.fields.push( { name: 'set_$id', kind: FFun({
+										args:[ { name:'v', type:macro:Dynamic } ], 
+										expr: (macro { return $p { ['ocls', id] } = $i{'v'} } ),
+										ret:null,
+									}), pos: e.pos } );
+									
+								case _:
+									e.iter( liftUnknownAccess );
+									
+							}
+						}
+						copy.iter( liftUnknownAccess );
 						
 						ctor.body( { expr: EBlock( ctorBody ), pos: ctorBody[0].pos } );
 						
-						var copy = exprs.copy();
-						
 						copy.push( macro return current );
 						m.expr.expr = EBlock( copy );
-						td.fields.get( 'hasNext' ).body( macro return state0 > -1 );
+						var checks = [for (i in 0...state) macro $i { 'state$i' } > -1];
+						var statement = checks.pop();
+						for (check in checks) statement = macro $statement || $check;
+						
+						td.fields.get( 'hasNext' ).body( macro return $statement );
 						
 						f.expr = { expr:EBlock( [Context.parse( 'return new ${td.pack.toDotPath(td.name)}(${arg_names.join(",")})', f.expr.pos )] ), pos:f.expr.pos };
+						if (f.ret != null) f.ret = TPath( { name:'Iterator', pack:[], params: [TPType(f.ret)] } );
+						//trace( new Printer().printTypeDefinition( td ) );
+						//trace( new Printer().printFunction( f ) );
 						Context.defineType( td );
 						
 					case _:
