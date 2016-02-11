@@ -282,9 +282,9 @@ class Yield {
 						ctor_args.push( { name: 'ocls', opt: false, type: cls.toComplexType() } );
 						
 						var copy = exprs.copy();
-						function liftUnknownAccess(e:Expr) {
+						function liftUnknownAccess(e:Expr, ignore:Array<String>) {
 							switch (e) {
-								case { expr: EConst(CIdent( id )), pos: pos } if (['null', 'true', 'false'].indexOf(id) == -1 && td.fields.get( id ) == null):
+								case { expr: EConst(CIdent( id )), pos: pos } if (['null', 'true', 'false', 'this'].concat(ignore).indexOf(id) == -1 && td.fields.get( id ) == null):
 									td.fields.push( { name: id, kind: FProp('get', 'set', macro:Dynamic, null), pos:e.pos } );
 									td.fields.push( { name: 'get_$id', kind: FFun({
 										args:[], 
@@ -298,11 +298,20 @@ class Yield {
 									}), pos: e.pos } );
 									
 								case _:
-									e.iter( liftUnknownAccess );
+									e.iter( liftUnknownAccess.bind(_, ignore) );
 									
 							}
 						}
-						copy.iter( liftUnknownAccess );
+						copy.iter( liftUnknownAccess.bind(_, []) );
+						for (field in td.fields) if (field.name != 'new') {
+							switch (field.kind) {
+								case FFun(method):
+									method.expr.iter( liftUnknownAccess.bind(_,method.args.map(function(a)return a.name)) );
+									
+								case _:
+									
+							}
+						}
 						
 						ctor.body( { expr: EBlock( ctorBody ), pos: ctorBody[0].pos } );
 						
@@ -315,7 +324,7 @@ class Yield {
 						td.fields.get( 'hasNext' ).body( macro return $statement );
 						
 						f.expr = { expr:EBlock( [Context.parse( 'return new ${td.pack.toDotPath(td.name)}(${arg_names.join(",")})', f.expr.pos )] ), pos:f.expr.pos };
-						if (f.ret != null) f.ret = TPath( { name:'Iterator', pack:[], params: [TPType(returnType)] } );
+						if (f.ret != null) f.ret = TPath( { name:'Iterator', pack:[], params: [TPType(f.ret)] } );
 						//trace( new Printer().printTypeDefinition( td ) );
 						//trace( new Printer().printFunction( f ) );
 						Context.defineType( td );
