@@ -11,6 +11,7 @@ using StringTools;
 using uhx.macro.Yield;
 using haxe.macro.TypeTools;
 using haxe.macro.ExprTools;
+using haxe.macro.ComplexTypeTools;
 using haxe.macro.MacroStringTools;
 
 /**
@@ -85,6 +86,53 @@ class Yield {
 	public static var ctorBody:Array<Expr> = null;
 	
 	public static function createGenerator(cls:Type, methodName:String, returnType:Null<ComplexType>):TypeDefinition {
+		if (returnType != null) {
+			function fulltypes(c:ComplexType):ComplexType {
+				var result = null;
+				trace( c );
+				
+				switch (c) {
+					case TPath( { pack:pack, name:name, params:params } ):
+						var res = { pack:pack, name:name, params:params };
+						if (pack.length == 0) {
+							var ctype = Context.getType( name ).toComplexType();
+							if (ctype != null) switch (ctype) {
+								case TPath( tp ): 
+									trace( tp );
+									res = tp;
+								case _:
+									trace( ctype );
+							}
+							
+						}
+						
+						for (i in 0...params.length) switch (params[i]) {
+							case TPType(ctype): res.params[i] = TPType( fulltypes(ctype) );
+							case _:
+						}
+						
+						result = TPath(res);
+						
+					case TFunction(args, ret):
+						
+						
+					case TAnonymous(fields):
+						
+					
+					case TParent(type), TOptional(type):
+						
+						
+					case TExtend(typepaths, fields):
+						
+				}
+				
+				return result;
+			}
+			
+			returnType = fulltypes(returnType);
+			trace( returnType );
+		}
+		
 		if (returnType == null) returnType = macro:Dynamic;
 		var _cls = cls.getClass();
 		var name = _cls.pack.toDotPath( _cls.name );
@@ -284,7 +332,20 @@ class Yield {
 						var copy = exprs.copy();
 						function liftUnknownAccess(e:Expr, ignore:Array<String>) {
 							switch (e) {
-								case { expr: EConst(CIdent( id )), pos: pos } if (['null', 'true', 'false', 'this'].concat(ignore).indexOf(id) == -1 && td.fields.get( id ) == null):
+								case macro $a { idents } ($a { args } ):
+									trace( idents );
+									trace( args );
+									
+								case (macro $i{ident}($a { args } )) if(td.fields.get(ident) == null):
+									//trace( ident );
+									//trace( args);
+									td.fields.push( { name: ident, kind: FFun({
+										args: args.map( function(e):FunctionArg return { name:new Printer().printExpr(e), type:macro:Dynamic } ), 
+										expr: (macro { return $i { ident } ($a { args } ); } ), 
+										ret:null,
+									}), pos: e.pos } );
+									
+								case { expr: EConst(CIdent( id )), pos: pos } if (['null', 'true', 'false', 'this', 'trace'].concat(ignore).indexOf(id) == -1 && td.fields.get( id ) == null):
 									td.fields.push( { name: id, kind: FProp('get', 'set', macro:Dynamic, null), pos:e.pos } );
 									td.fields.push( { name: 'get_$id', kind: FFun({
 										args:[], 
@@ -298,6 +359,7 @@ class Yield {
 									}), pos: e.pos } );
 									
 								case _:
+									//trace( e );
 									e.iter( liftUnknownAccess.bind(_, ignore) );
 									
 							}
@@ -349,7 +411,7 @@ class Yield {
 		switch (cases[cases.length - 1].expr) {
 			case { expr: EBlock(es), pos: pos } :
 				es.pop();
-				es.push( macro $i{ stateName() } = -2 );
+				for (index in 0...state) es.push( macro $i { 'state$index' } = -2 );
 				
 			case _:
 				
